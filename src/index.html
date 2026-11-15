@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Escaneator</title>
+<link rel="stylesheet" href="estilo.css">
+<style id="estiloPagina"></style>
+</head>
+<body>
+<header id="cabecera">
+  <div class="marca">
+    <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
+      <rect x="6" y="3" width="20" height="26" rx="2.5" fill="#f4f1ea"/>
+      <rect x="10" y="8" width="12" height="2" rx="1" fill="#9aa3ad"/>
+      <rect x="10" y="20" width="9" height="2" rx="1" fill="#9aa3ad"/>
+      <rect x="2" y="14" width="28" height="3" rx="1.5" fill="#ff8a3d"/>
+    </svg>
+    <span>Escaneator</span><small id="version">0.1</small>
+  </div>
+  <nav class="modos" id="modos">
+    <button data-modo="etiquetas">Etiquetas</button>
+    <button data-modo="impresos">Impresos y folletos</button>
+  </nav>
+  <div class="acciones">
+    <span id="nombreTrabajo" class="nombreTrabajo"></span>
+    <button id="btnNuevo">Nuevo</button>
+    <button id="btnAbrir">Abrir</button>
+    <button id="btnGuardar">Guardar</button>
+    <button id="btnImprimir" class="principal">Imprimir</button>
+  </div>
+</header>
+
+<main>
+  <aside id="panelIzq" class="panel"></aside>
+  <section id="centro">
+    <div id="barraCentro">
+      <div id="subtabs" class="subtabs"></div>
+      <div class="zoom">
+        <button id="zMenos" title="Alejar">−</button>
+        <button id="zAjustar" title="Ajustar a la ventana">Ajustar</button>
+        <button id="zMas" title="Acercar">+</button>
+      </div>
+    </div>
+    <div id="lienzo"></div>
+    <div id="estado"></div>
+  </section>
+  <aside id="panelDer" class="panel"></aside>
+</main>
+
+<div id="impresion"></div>
+<dialog id="dlg"></dialog>
+<div id="avisos"></div>
+<input type="file" id="ficheroDatos" accept=".csv,.txt,.xlsx,.xls,.ods" hidden>
+<input type="file" id="ficheroFondo" accept="image/*,.pdf" hidden>
+<input type="file" id="ficheroImagen" accept="image/*" hidden>
+
+<script src="lib/xlsx.mini.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

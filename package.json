@@ -1,0 +1,13 @@
+{
+  "name": "escaneator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Escaneator: etiquetas e impresos rellenados sobre una hoja escaneada",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

@@ -1,0 +1,34 @@
+name: Compilar Escaneator
+
+# Se lanza a mano (pestaña Actions > Compilar Escaneator > Run workflow)
+# o al subir una etiqueta de versión, por ejemplo v0.1.0.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm install
+      - run: npx tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Escaneator-instalador
+          path: src-tauri/target/release/bundle/nsis/*.exe
+      - name: Publicar la versión
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: src-tauri/target/release/bundle/nsis/*.exe
