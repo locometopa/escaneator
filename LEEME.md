@@ -3,7 +3,7 @@
 Programa para imprimir **etiquetas** y para **rellenar impresos o folletos ya impresos**: se escanea la hoja,
 se escribe encima en pantalla y al imprimir solo sale lo escrito, colocado en su sitio sobre el original.
 
-Versión 0.2.0 · Hecho con **Tauri 2** (Rust por dentro, interfaz web por fuera).
+Versión 0.3.0 · Hecho con **Tauri 2** (Rust por dentro, interfaz web por fuera).
 
 ## Cómo se maneja
 
@@ -18,6 +18,11 @@ Los datos que cambian en cada etiqueta son fichas de color que se arrastran al d
 - Diseño de la etiqueta con textos e imágenes; `{Nombre}` se sustituye por el dato de esa columna.
 - Datos a mano, importados de Excel/CSV o pegados desde Excel. Casilla para elegir cuáles se imprimen y copias de cada una.
 - Hojas empezadas: se marcan las posiciones ya usadas y se saltan.
+- Hojas con varios tamaños de etiqueta: una hoja puede tener varios grupos, cada uno con sus columnas, filas y medidas. En «Colocar las etiquetas a mano» cada tamaño se arrastra a su sitio y se mide tirando de la esquina («+ Añadir otro tamaño de etiqueta»). Hay una plantilla de ejemplo, «Hojas con varios tamaños».
+- Calcar la hoja: se puede poner debajo una foto o un escaneo de la hoja de etiquetas para colocar los tamaños encima.
+- Diseño propio para cada tamaño, con un botón para copiar el diseño a los demás (adaptado en proporción).
+- Ejemplos de diseño para empezar: Dirección, Precio, Nombre grande, Producto y fecha, Archivador y Remitente. Se adaptan a la medida de la etiqueta y traen datos de muestra.
+- Al imprimir se marca qué tamaños se imprimen.
 
 **Impresos y folletos**
 - Escanear desde el programa (escáner de Windows, WIA) o abrir una imagen o un PDF.

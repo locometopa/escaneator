@@ -213,3 +213,23 @@ dialog .pie { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16
   .pagImp:last-child { break-after: auto; page-break-after: auto; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* Hojas con varios tamaños de etiqueta */
+.pestanas { display: flex; gap: 6px; margin-top: 12px; }
+.pestanas button { border-radius: 20px; padding: 6px 16px; }
+.pestanas button.activa { background: var(--acento); border-color: var(--acento); color: #1b1206; font-weight: 600; }
+.papel.plano { cursor: default; }
+.celda { position: absolute; border: 0.4mm solid; border-radius: 1mm; cursor: move; touch-action: none; user-select: none; }
+.celda.sel { border-width: 0.8mm; }
+.celda span { position: absolute; left: 0.8mm; top: 0.8mm; min-width: 5mm; height: 5mm; border-radius: 2.5mm; color: #1b1b1b; font: 700 9pt "Segoe UI", Arial, sans-serif; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.celda .tirador { position: absolute; right: -1.6mm; bottom: -1.6mm; width: 3.4mm; height: 3.4mm; border-radius: 50%; background: #1b1b1b; border: 0.5mm solid #fff; cursor: nwse-resize; }
+.grupo { border-left: 5px solid var(--borde); background: var(--panel2); border-radius: 8px; padding: 10px 10px 2px 12px; margin-bottom: 8px; }
+.grupo.sel { box-shadow: 0 0 0 1px #55607a; }
+.cabGrupo { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cabGrupo span { color: var(--suave); font-size: 12px; flex: 1; }
+.ejemplos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ej { padding: 8px 6px 6px; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12.5px; }
+.ej .mini { height: 74px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.ej .papel { box-shadow: 0 1px 6px rgba(0,0,0,.4); }
+.papel.guia .etq.apagada { background: #eceef1; outline-style: dotted; cursor: default; }
+.papel.guia .etq.apagada::after { content: "no se imprime"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9aa3ad; font: 8pt Arial, sans-serif; }

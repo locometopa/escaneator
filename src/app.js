@@ -13,7 +13,9 @@ const esTauri = !!(window.__TAURI__ && window.__TAURI__.core);
 const invoke = esTauri ? window.__TAURI__.core.invoke : null;
 
 /* ---------- Hojas y plantillas ---------- */
-const hj = (ancho, alto, mSup, mIzq, cols, filas, etqAncho, etqAlto, sepH = 0, sepV = 0) => ({ ancho, alto, mSup, mIzq, cols, filas, etqAncho, etqAlto, sepH, sepV });
+const ZC = ['#ff8a3d', '#3da9ff', '#3fbf7f', '#c86bd6', '#d9b310', '#ff6b81']; // un color por tamaño de etiqueta
+const zn = (x, y, cols, filas, w, h, sepH = 0, sepV = 0) => ({ x, y, cols, filas, w, h, sepH, sepV });
+const hj = (ancho, alto, mSup, mIzq, cols, filas, w, h, sepH = 0, sepV = 0) => ({ ancho, alto, zonas: [zn(mIzq, mSup, cols, filas, w, h, sepH, sepV)] });
 const PLANTILLAS = [
   { g: 'Folio A4', n: '24 etiquetas', d: '70 × 37 mm', h: hj(210, 297, 0.5, 0, 3, 8, 70, 37) },
   { g: 'Folio A4', n: '21 etiquetas', d: '70 × 42,3 mm', h: hj(210, 297, 0.45, 0, 3, 7, 70, 42.3) },
@@ -27,6 +29,7 @@ const PLANTILLAS = [
   { g: 'Impresora de rollo', n: 'Rollo', d: '50 × 30 mm', h: hj(50, 30, 0, 0, 1, 1, 50, 30) },
   { g: 'Impresora de rollo', n: 'Rollo', d: '100 × 50 mm', h: hj(100, 50, 0, 0, 1, 1, 100, 50) },
   { g: 'Impresora de rollo', n: 'Rollo de envíos', d: '100 × 150 mm', h: hj(100, 150, 0, 0, 1, 1, 100, 150) },
+  { g: 'Hojas con varios tamaños', n: '13 etiquetas', d: '3 tamaños distintos', h: { ancho: 110, alto: 150, zonas: [zn(3, 2, 1, 8, 33, 16, 0, 2.3), zn(39, 2, 1, 3, 66, 28, 0, 5.5), zn(39, 102, 2, 1, 34, 40, 1.5, 0)] } },
 ];
 const HOJAS = [
   { n: 'A4', ancho: 210, alto: 297 }, { n: 'A4 tumbado', ancho: 297, alto: 210 },
@@ -39,36 +42,68 @@ const colorCol = (i) => COLORES[i % COLORES.length];
 const PASOS = { etq: ['Hoja', 'Diseño', 'Datos', 'Imprimir'], imp: ['Hoja', 'Rellenar', 'Imprimir'] };
 
 /* ---------- Estado ---------- */
+const GEO = ['x', 'y', 'cols', 'filas', 'w', 'h', 'sepH', 'sepV'];
+const geoHoja = (h) => JSON.stringify([h.ancho, h.alto, h.zonas.map((z) => GEO.map((k) => +(+z[k]).toFixed(2)))]);
+const fmt = (n) => String(+(+n).toFixed(1)).replace('.', ',');
+/* Pasa un diseño de una etiqueta a otra de distinta medida, encogiendo o estirando en proporción. */
+function adaptarCampos(campos, de, a) {
+  const fx = a.w / de.w, fy = a.h / de.h, f = Math.sqrt(fx * fy); // media de ambos: ir y volver entre plantillas no encoge la letra
+  return campos.map((c) => ({ ...c, id: uid(), x: r5(c.x * fx), y: r5(c.y * fy), w: Math.max(3, r5(c.w * fx)), h: Math.max(2, r5(c.h * fy)), ...(c.tipo === 'texto' ? { tam: Math.max(5, Math.round(c.tam * f)) } : {}) }));
+}
+/* Crea una hoja a partir de una plantilla, conservando (adaptado) el diseño que hubiera. */
+function hojaDe(p, vieja) {
+  const zonas = p.zonas.map((g, i) => {
+    const o = vieja && (vieja.zonas[i] || vieja.zonas[0]);
+    const igual = o && Math.abs(o.w - g.w) < 0.05 && Math.abs(o.h - g.h) < 0.05;
+    return { id: uid(), activo: true, ...g, campos: !o ? [] : igual ? o.campos.map((c) => ({ ...c, id: uid() })) : adaptarCampos(o.campos, o, g) };
+  });
+  return { ancho: p.ancho, alto: p.alto, zonas, calco: null };
+}
 function nuevoEtq() {
+  const hoja = hojaDe(PLANTILLAS[0].h);
+  hoja.zonas[0].campos = [
+    { id: uid(), tipo: 'texto', texto: '{Nombre}', x: 4, y: 5, w: 62, h: 7, tam: 14, negrita: true, alin: 'left', fuente: 'Arial' },
+    { id: uid(), tipo: 'texto', texto: '{Dirección}', x: 4, y: 14, w: 62, h: 9, tam: 10, negrita: false, alin: 'left', fuente: 'Arial' },
+  ];
   return {
-    tipo: 'etiquetas', nombre: '', hoja: { ...PLANTILLAS[0].h },
-    campos: [
-      { id: uid(), tipo: 'texto', texto: '{Nombre}', x: 4, y: 5, w: 62, h: 7, tam: 14, negrita: true, alin: 'left', fuente: 'Arial' },
-      { id: uid(), tipo: 'texto', texto: '{Dirección}', x: 4, y: 14, w: 62, h: 9, tam: 10, negrita: false, alin: 'left', fuente: 'Arial' },
-    ],
+    tipo: 'etiquetas', nombre: '', hoja,
     columnas: ['Nombre', 'Dirección'], filas: [{ sel: true, copias: 1, v: ['', ''] }],
     cantidad: 1, usadas: [], borde: false, ajusteX: 0, ajusteY: 0,
   };
 }
+/* Acepta trabajos guardados con versiones anteriores (una sola medida de etiqueta). */
+function migrarEtq(o) {
+  const e = { ...nuevoEtq(), ...o }, h = e.hoja;
+  if (!h.zonas) e.hoja = { ancho: h.ancho, alto: h.alto, calco: null, zonas: [{ ...zn(h.mIzq || 0, h.mSup || 0, h.cols || 1, h.filas || 1, h.etqAncho, h.etqAlto, h.sepH || 0, h.sepV || 0), campos: o.campos || [] }] };
+  e.hoja.zonas.forEach((z) => { z.id = z.id || uid(); z.campos = z.campos || []; if (z.activo === undefined) z.activo = true; });
+  delete e.campos;
+  return e;
+}
 function nuevoImp() {
   return { tipo: 'impresos', nombre: '', hoja: { ancho: 210, alto: 297 }, fondo: null, opFondo: 0.85, campos: [], ajusteX: 0, ajusteY: 0, conFondo: false };
 }
-const st = { pantalla: 'inicio', paso: 0, etq: nuevoEtq(), imp: nuevoImp(), sel: null, edit: false, caret: null, zf: 1, z: 1, pag: 0, filaPrev: 0, escaneres: null, guardados: null };
+const st = { pantalla: 'inicio', paso: 0, etq: nuevoEtq(), imp: nuevoImp(), sel: null, edit: false, caret: null, zf: 1, z: 1, pag: 0, filaPrev: 0, escaneres: null, guardados: null, zona: null, vistaHoja: 'galeria' };
 const actual = () => (st.pantalla === 'imp' ? st.imp : st.etq);
-const campoSel = () => (st.sel ? actual().campos.find((c) => c.id === st.sel) : null);
+const zonaAct = () => { const zs = st.etq.hoja.zonas; return zs.find((z) => z.id === st.zona) || zs[0]; };
+const cont = () => (st.pantalla === 'imp' ? st.imp : zonaAct()); // quién tiene los textos que se están editando
+const todosCampos = (e) => e.hoja.zonas.flatMap((z) => z.campos);
+const campoSel = () => (st.sel ? cont().campos.find((c) => c.id === st.sel) : null);
 
 let tSesion = null;
 function guardarSesion() {
   clearTimeout(tSesion);
   tSesion = setTimeout(() => {
-    try { localStorage.setItem('esc:sesion', JSON.stringify({ etq: st.etq, imp: st.imp })); }
-    catch (e) { /* la imagen escaneada puede no caber; se conserva al pulsar Guardar */ }
+    const datos = { etq: st.etq, imp: st.imp };
+    try { localStorage.setItem('esc:sesion', JSON.stringify(datos)); }
+    catch (e) { // las imágenes escaneadas pueden no caber: se guarda lo demás (se conservan al pulsar Guardar)
+      try { localStorage.setItem('esc:sesion', JSON.stringify(datos, (k, v) => (k === 'calco' || k === 'fondo' ? null : v))); } catch (e2) { /* sin sitio */ }
+    }
   }, 700);
 }
 function cargarSesion() {
   try {
     const s = JSON.parse(localStorage.getItem('esc:sesion') || 'null');
-    if (s && s.etq && s.imp) { st.etq = { ...nuevoEtq(), ...s.etq }; st.imp = { ...nuevoImp(), ...s.imp }; }
+    if (s && s.etq && s.imp) { st.etq = migrarEtq(s.etq); st.imp = { ...nuevoImp(), ...s.imp }; }
   } catch (e) { /* sesión dañada: se empieza de cero */ }
 }
 
@@ -112,7 +147,7 @@ function sustituir(texto, e, valores) {
   return texto.replace(/\{([^{}]+)\}/g, (todo, nombre) => { const i = indiceCol(e, nombre); return i < 0 ? todo : (valores[i] ?? ''); });
 }
 function usaDatos(e) {
-  return e.campos.some((c) => c.tipo === 'texto' && /\{([^{}]+)\}/.test(c.texto) && [...c.texto.matchAll(/\{([^{}]+)\}/g)].some((m) => indiceCol(e, m[1]) >= 0));
+  return e.hoja.zonas.some((z) => z.activo !== false && z.campos.some((c) => c.tipo === 'texto' && [...c.texto.matchAll(/\{([^{}]+)\}/g)].some((m) => indiceCol(e, m[1]) >= 0)));
 }
 function elFicha(e, i) {
   const s = document.createElement('span');
@@ -168,11 +203,13 @@ function elFondo(f, opacidad) {
   i.style.opacity = opacidad;
   return i;
 }
-function posEtq(h, i) {
-  const col = i % h.cols, fila = Math.floor(i / h.cols);
-  return { x: h.mIzq + col * (h.etqAncho + h.sepH), y: h.mSup + fila * (h.etqAlto + h.sepV) };
+/* Todas las etiquetas de la hoja, en orden: tamaño a tamaño, de izquierda a derecha y de arriba abajo. */
+function posiciones(h) {
+  const out = [];
+  h.zonas.forEach((z) => { for (let f = 0; f < z.filas; f++) for (let c = 0; c < z.cols; c++) out.push({ z, x: z.x + c * (z.w + z.sepH), y: z.y + f * (z.h + z.sepV) }); });
+  return out;
 }
-const porHoja = (e) => Math.max(1, e.hoja.cols * e.hoja.filas);
+const libresHoja = (e) => Math.max(1, posiciones(e.hoja).filter((p, i) => p.z.activo !== false && !e.usadas[i]).length);
 function etiquetasAImprimir(e) {
   if (!usaDatos(e)) return Array.from({ length: Math.max(1, Math.min(9999, e.cantidad | 0)) }, () => []);
   const out = [];
@@ -181,12 +218,13 @@ function etiquetasAImprimir(e) {
 }
 /* Reparte las etiquetas en hojas, saltando en la primera las posiciones marcadas como usadas. */
 function paginar(e) {
-  const n = porHoja(e), cola = etiquetasAImprimir(e), pags = [];
+  const pos = posiciones(e.hoja), cola = etiquetasAImprimir(e), pags = [];
+  if (!pos.some((p) => p.z.activo !== false)) return pags;
   let k = 0;
   while (k < cola.length && pags.length < 2000) {
-    const pag = new Array(n).fill(null);
-    for (let i = 0; i < n && k < cola.length; i++) {
-      if (pags.length === 0 && e.usadas[i]) continue;
+    const pag = new Array(pos.length).fill(null);
+    for (let i = 0; i < pos.length && k < cola.length; i++) {
+      if (pos[i].z.activo === false || (pags.length === 0 && e.usadas[i])) continue;
       pag[i] = cola[k++];
     }
     pags.push(pag);
@@ -195,24 +233,20 @@ function paginar(e) {
 }
 function contenidoHoja(e, pag, guia) {
   const frag = document.createDocumentFragment();
-  for (let i = 0; i < porHoja(e); i++) {
+  posiciones(e.hoja).forEach((p, i) => {
     const valores = pag ? pag[i] : null;
-    if (!guia && !valores) continue;
-    const p = posEtq(e.hoja, i), d = document.createElement('div');
-    d.className = 'etq' + (!guia && e.borde ? ' borde' : '');
-    d.style.left = p.x + 'mm'; d.style.top = p.y + 'mm'; d.style.width = e.hoja.etqAncho + 'mm'; d.style.height = e.hoja.etqAlto + 'mm';
+    if (!guia && !valores) return;
+    const d = document.createElement('div');
+    d.className = 'etq' + (!guia && e.borde ? ' borde' : '') + (guia && p.z.activo === false ? ' apagada' : '');
+    d.style.left = p.x + 'mm'; d.style.top = p.y + 'mm'; d.style.width = p.z.w + 'mm'; d.style.height = p.z.h + 'mm';
     d.dataset.i = i;
-    if (valores) e.campos.forEach((c) => d.append(elCampo(c, e, valores)));
+    if (valores) p.z.campos.forEach((c) => d.append(elCampo(c, e, valores)));
     frag.append(d);
-  }
+  });
   return frag;
 }
 function svgHoja(h) {
-  let r = '';
-  for (let i = 0; i < Math.min(400, h.cols * h.filas); i++) {
-    const p = posEtq(h, i);
-    r += `<rect x="${p.x}" y="${p.y}" width="${h.etqAncho}" height="${h.etqAlto}" rx="1.2" fill="#fff1e2" stroke="#ff8a3d" stroke-width="0.7"/>`;
-  }
+  const r = posiciones(h).slice(0, 500).map((p) => { const col = ZC[h.zonas.indexOf(p.z) % ZC.length]; return `<rect x="${p.x}" y="${p.y}" width="${p.z.w}" height="${p.z.h}" rx="1.2" fill="${col}22" stroke="${col}" stroke-width="0.7"/>`; }).join('');
   return `<svg viewBox="-3 -3 ${h.ancho + 6} ${h.alto + 6}"><rect width="${h.ancho}" height="${h.alto}" rx="2" fill="#fff"/>${r}</svg>`;
 }
 
@@ -240,11 +274,11 @@ function crearPapel(ancho, alto, tope = 6, soloAncho = false) {
 /* ---------- Editor: se escribe y se arrastra directamente sobre el papel ---------- */
 function montarEditor(ancho, alto, e, opciones = {}) {
   const { papel, escd } = crearPapel(ancho, alto, opciones.tope || 6, opciones.soloAncho);
-  const campos = e.campos, conFichas = e.tipo === 'etiquetas';
+  const fichas = opciones.fichas || null, conFichas = !!fichas;
   papel.classList.add('editor');
   if (opciones.fondo) papel.append(elFondo(opciones.fondo, opciones.opFondo ?? 1));
-  campos.forEach((c) => {
-    const d = elCampo(c, conFichas ? e : null, null);
+  e.campos.forEach((c) => {
+    const d = elCampo(c, fichas, null);
     d.classList.add('edit'); d.dataset.id = c.id;
     if (c.id === st.sel) {
       d.classList.add('sel');
@@ -266,11 +300,11 @@ function montarEditor(ancho, alto, e, opciones = {}) {
       finEdicion();
       const tam = opciones.tam || 11, h = altoLinea(tam);
       const c = { id: uid(), tipo: 'texto', texto: '', x: Math.max(0, p.x - 0.5), y: Math.max(0, r5(p.y - h / 2)), w: Math.max(12, Math.min(opciones.anchoNuevo || 80, ancho - p.x - 1)), h, tam, negrita: false, alin: 'left', fuente: 'Arial' };
-      campos.push(c); st.sel = c.id; st.edit = true; st.caret = null;
+      e.campos.push(c); st.sel = c.id; st.edit = true; st.caret = null;
       pintarCentro();
       return;
     }
-    const c = campos.find((x) => x.id === d.dataset.id);
+    const c = e.campos.find((x) => x.id === d.dataset.id);
     if (!c) return;
     finEdicion();
     st.sel = c.id;
@@ -297,7 +331,7 @@ function montarEditor(ancho, alto, e, opciones = {}) {
       if (!esFicha(ev)) return;
       ev.preventDefault();
       const nombre = ev.dataTransfer.getData('application/x-ficha'), d = ev.target.closest('.campo');
-      const c = d && campos.find((x) => x.id === d.dataset.id);
+      const c = d && e.campos.find((x) => x.id === d.dataset.id);
       finEdicion();
       if (c && c.tipo === 'texto') { c.texto += (c.texto && !/\s$/.test(c.texto) ? ' ' : '') + `{${nombre}}`; st.sel = c.id; }
       else { const p = puntoMM(ev); nuevoCampoDato(nombre, p.x, p.y); }
@@ -306,13 +340,13 @@ function montarEditor(ancho, alto, e, opciones = {}) {
   }
   ponerBarrita(escd);
   if (st.edit) enfocarEdicion();
-  campos.forEach(ajustarAlto);
+  e.campos.forEach(ajustarAlto);
 }
 function nuevoCampoDato(nombre, x, y) {
-  const e = st.etq, tam = 11, h = altoLinea(tam);
-  if (x === undefined) { x = 3; y = e.campos.reduce((m, c) => Math.max(m, c.y + c.h), 2) + 1; if (y + h > e.hoja.etqAlto) y = 2; }
-  const c = { id: uid(), tipo: 'texto', texto: `{${nombre}}`, x: Math.max(0, x - 1), y: Math.max(0, r5(y - h / 2)), w: Math.max(12, Math.min(60, e.hoja.etqAncho - x - 1)), h, tam, negrita: false, alin: 'left', fuente: 'Arial' };
-  e.campos.push(c); st.sel = c.id; st.edit = false;
+  const z = zonaAct(), tam = Math.max(6, Math.min(11, Math.round(z.h / 4))), h = altoLinea(tam);
+  if (x === undefined) { x = 3; y = z.campos.reduce((m, c) => Math.max(m, c.y + c.h), 2) + 1; if (y + h > z.h) y = 2; }
+  const c = { id: uid(), tipo: 'texto', texto: `{${nombre}}`, x: Math.max(0, x - 1), y: Math.max(0, r5(y - h / 2)), w: Math.max(12, Math.min(60, z.w - x - 1)), h, tam, negrita: false, alin: 'left', fuente: 'Arial' };
+  z.campos.push(c); st.sel = c.id; st.edit = false;
 }
 const elSel = () => (st.sel ? $(`#lienzo .campo[data-id="${st.sel}"]`) : null);
 function ajustarAlto(c) {
@@ -337,7 +371,7 @@ function finEdicion() {
   const c = campoSel();
   if (st.edit && c && c.tipo === 'texto') {
     c.texto = c.texto.replace(/\s+$/, '');
-    if (!c.texto) { const a = actual(); a.campos = a.campos.filter((x) => x.id !== c.id); st.sel = null; }
+    if (!c.texto) { const a = cont(); a.campos = a.campos.filter((x) => x.id !== c.id); st.sel = null; }
   }
   st.edit = false;
   guardarSesion();
@@ -398,8 +432,8 @@ function ponerBarrita(escd) {
     else if (a === 'mas') cc.tam = Math.min(120, cc.tam + 1);
     else if (a === 'negrita') cc.negrita = !cc.negrita;
     else if (a === 'alin') cc.alin = bt.dataset.v;
-    else if (a === 'borrar') { st.edit = false; const o = actual(); o.campos = o.campos.filter((x) => x.id !== cc.id); st.sel = null; }
-    else if (a === 'duplicar') { finEdicion(); const n = { ...cc, id: uid(), y: cc.y + cc.h + 1 }; actual().campos.push(n); st.sel = n.id; }
+    else if (a === 'borrar') { st.edit = false; const o = cont(); o.campos = o.campos.filter((x) => x.id !== cc.id); st.sel = null; }
+    else if (a === 'duplicar') { finEdicion(); const n = { ...cc, id: uid(), y: cc.y + cc.h + 1 }; cont().campos.push(n); st.sel = n.id; }
     pintarCentro(); guardarSesion();
   };
   b.onchange = (ev) => { const cc = campoSel(); if (ev.target.dataset.b === 'fuente' && cc) { cc.fuente = ev.target.value; pintarCentro(); guardarSesion(); } };
@@ -442,7 +476,7 @@ function pintar() {
 }
 const TITULOS = {
   etq: [
-    ['¿En qué hoja vas a imprimir?', 'Elige una que se parezca a la tuya. Si no coincide del todo, corrige las medidas a la derecha.'],
+    ['¿En qué hoja vas a imprimir?', 'Elige una que se parezca a la tuya y corrige las medidas a la derecha. Si tu hoja trae etiquetas de varios tamaños, colócalas a mano.'],
     ['Diseña una etiqueta', 'Haz clic en la etiqueta y escribe. Arrastra para mover. Lo que diseñes aquí se repite en todas.'],
     ['¿Qué pone en cada etiqueta?', ''],
     ['Revisa e imprime', 'Así saldrá la hoja. Si ya está empezada, haz clic en las etiquetas que faltan para saltarlas.'],
@@ -458,14 +492,14 @@ function pintarTitulo() {
   if (st.pantalla === 'inicio') { t.innerHTML = ''; return; }
   let [a, b] = TITULOS[st.pantalla][st.paso];
   if (st.pantalla === 'etq' && st.paso === 2) b = usaDatos(st.etq) ? 'Cada fila es una etiqueta. Escribe, importa un Excel o pega con Ctrl+V lo copiado en Excel.' : 'Tu etiqueta no lleva datos que cambien, así que todas salen iguales.';
-  t.innerHTML = `<h1>${a}</h1><p>${b}</p>`;
+  t.innerHTML = `<h1>${a}</h1><p>${b}</p>` + (st.pantalla === 'etq' && st.paso === 0 ? `<div class="pestanas"><button data-vista="galeria" class="${st.vistaHoja === 'mano' ? '' : 'activa'}">Elegir una plantilla</button><button data-vista="mano" class="${st.vistaHoja === 'mano' ? 'activa' : ''}">Colocar las etiquetas a mano</button></div>` : '');
 }
 function pintarCentro() {
   const p = st.pantalla, n = st.paso;
-  const conPapel = (p === 'etq' && (n === 1 || n === 3)) || p === 'imp';
+  const conPapel = (p === 'etq' && (n === 1 || n === 3 || (n === 0 && st.vistaHoja === 'mano'))) || p === 'imp';
   $('#zoom').classList.toggle('oculto', !conPapel);
   if (p === 'inicio') pintarInicio();
-  else if (p === 'etq') [pintarGaleria, pintarDiseno, pintarDatos, pintarHoja][n]();
+  else if (p === 'etq') [pintarPasoHoja, pintarDiseno, pintarDatos, pintarHoja][n]();
   else [pintarImpHoja, pintarImpRellenar, pintarImpRevisar][n]();
   pintarEstado();
 }
@@ -513,39 +547,142 @@ async function listarGuardados() {
 }
 
 /* ---------- Etiquetas · paso 1: hoja ---------- */
-const igualHoja = (a, b) => Object.keys(b).every((k) => Math.abs(a[k] - b[k]) < 0.01);
+const igualHoja = (h, p) => geoHoja(h) === geoHoja(p);
 function pintarGaleria() {
   const h = st.etq.hoja; let grupo = '';
   libre(`<div class="galeria">${PLANTILLAS.map((p, i) => `${p.g !== grupo ? `<h4>${grupo = p.g}</h4>` : ''}<button class="hojaT ${igualHoja(h, p.h) ? 'activa' : ''}" data-plantilla="${i}">${svgHoja(p.h)}<b>${p.n}</b><span>${p.d}</span></button>`).join('')}</div>`);
 }
+function pintarPasoHoja() { if (st.vistaHoja === 'mano') pintarHojaMano(); else pintarGaleria(); }
+function dibujarCeldas(papel) {
+  papel.querySelectorAll('.celda').forEach((x) => x.remove());
+  const h = st.etq.hoja, za = zonaAct();
+  let ult = null;
+  posiciones(h).forEach((p) => {
+    const d = document.createElement('div'), k = h.zonas.indexOf(p.z), col = ZC[k % ZC.length];
+    d.className = 'celda' + (p.z === za ? ' sel' : '');
+    d.style.cssText = `left:${p.x}mm;top:${p.y}mm;width:${p.z.w}mm;height:${p.z.h}mm;border-color:${col};background:${col}38`;
+    d.dataset.z = p.z.id;
+    if (p.z !== ult) { ult = p.z; d.innerHTML = `<span style="background:${col}">${k + 1}</span>` + (p.z === za ? '<i class="tirador"></i>' : ''); }
+    papel.append(d);
+  });
+}
+/* La hoja en grande: cada tamaño de etiqueta se arrastra a su sitio y se le da medida tirando de la esquina. */
+function pintarHojaMano() {
+  const h = st.etq.hoja, { papel } = crearPapel(h.ancho, h.alto, 3);
+  papel.classList.add('plano');
+  if (h.calco) papel.append(elFondo(h.calco, 0.8));
+  dibujarCeldas(papel);
+  papel.onpointerdown = (ev) => {
+    const d = ev.target.closest('.celda'); if (!d || ev.button !== 0) return;
+    ev.preventDefault();
+    const z = h.zonas.find((x) => x.id === d.dataset.z); if (!z) return;
+    const redim = ev.target.classList.contains('tirador');
+    if (st.zona !== z.id) { st.zona = z.id; dibujarCeldas(papel); pintarDer(); }
+    const x0 = ev.clientX, y0 = ev.clientY, o = { x: z.x, y: z.y, w: z.w, h: z.h }, k = MM * st.z;
+    let movido = false;
+    const mover = (e2) => {
+      if (!movido && Math.abs(e2.clientX - x0) + Math.abs(e2.clientY - y0) < 4) return;
+      movido = true;
+      const dx = (e2.clientX - x0) / k, dy = (e2.clientY - y0) / k;
+      if (redim) { z.w = Math.max(5, r5(o.w + dx)); z.h = Math.max(4, r5(o.h + dy)); }
+      else { z.x = Math.max(0, r5(o.x + dx)); z.y = Math.max(0, r5(o.y + dy)); }
+      dibujarCeldas(papel);
+    };
+    const fin = () => {
+      window.removeEventListener('pointermove', mover);
+      if (!movido) return;
+      if (redim) z.campos = adaptarCampos(z.campos, o, z);
+      st.etq.usadas = []; pintarDer(); guardarSesion();
+    };
+    window.addEventListener('pointermove', mover);
+    window.addEventListener('pointerup', fin, { once: true });
+  };
+}
 function derHoja() {
-  const h = st.etq.hoja;
-  return `<div class="vistaHoja" id="vistaHoja">${svgHoja(h)}</div>
-    <h3>Medidas de la hoja (mm)</h3>
-    <div class="fila">${campoNum('Ancho', 'data-h="ancho"', h.ancho)}${campoNum('Alto', 'data-h="alto"', h.alto)}</div>
-    <div class="fila">${campoNum('Margen de arriba', 'data-h="mSup"', h.mSup)}${campoNum('Margen izquierdo', 'data-h="mIzq"', h.mIzq)}</div>
+  const h = st.etq.hoja, za = zonaAct(), varias = h.zonas.length > 1, c = h.calco;
+  const z4 = (z, k, v, paso) => `data-z="${z.id}" data-zk="${k}"` + (paso ? ' min="1"' : '');
+  return `${st.vistaHoja === 'mano' ? '' : `<div class="vistaHoja" id="vistaHoja">${svgHoja(h)}</div>`}
+    <h3>Hoja (mm)</h3>
+    <div class="fila">${campoNum('Ancho', 'data-ha="ancho"', h.ancho)}${campoNum('Alto', 'data-ha="alto"', h.alto)}</div>
     <h3>Etiquetas (mm)</h3>
-    <div class="fila">${campoNum('Columnas', 'data-h="cols" min="1"', h.cols, 1)}${campoNum('Filas', 'data-h="filas" min="1"', h.filas, 1)}</div>
-    <div class="fila">${campoNum('Ancho', 'data-h="etqAncho"', h.etqAncho)}${campoNum('Alto', 'data-h="etqAlto"', h.etqAlto)}</div>
-    <div class="fila">${campoNum('Hueco entre columnas', 'data-h="sepH"', h.sepH)}${campoNum('Hueco entre filas', 'data-h="sepV"', h.sepV)}</div>
+    ${h.zonas.map((z, k) => `<div class="grupo ${z === za && varias ? 'sel' : ''}" style="border-left-color:${ZC[k % ZC.length]}" data-grupo="${z.id}">
+      ${varias ? `<div class="cabGrupo"><b>Tamaño ${k + 1}</b><span>${z.cols * z.filas} etiqueta${z.cols * z.filas === 1 ? '' : 's'}</span><button class="mini peligro" data-quitar-zona="${z.id}">Quitar</button></div>` : ''}
+      <div class="fila">${campoNum('Columnas', z4(z, 'cols', 0, 1), z.cols, 1)}${campoNum('Filas', z4(z, 'filas', 0, 1), z.filas, 1)}</div>
+      <div class="fila">${campoNum('Ancho', z4(z, 'w'), z.w)}${campoNum('Alto', z4(z, 'h'), z.h)}</div>
+      <div class="fila">${campoNum('Desde la izquierda', z4(z, 'x'), z.x)}${campoNum('Desde arriba', z4(z, 'y'), z.y)}</div>
+      <div class="fila">${campoNum('Hueco entre columnas', z4(z, 'sepH'), z.sepH)}${campoNum('Hueco entre filas', z4(z, 'sepV'), z.sepV)}</div></div>`).join('')}
+    <div class="botones"><button id="addZona">+ Añadir otro tamaño de etiqueta</button></div>
     <div id="alertaHoja"></div>
-    <p class="nota">El dibujo cambia según escribes. Las plantillas son orientativas: mide tu hoja con una regla.</p>
-    <div class="botones"><button id="deCero" class="mini">Empezar unas etiquetas de cero</button></div>`;
+    <h3>Calcar tu hoja</h3>
+    <p class="nota">Pon debajo una foto o un escaneo de tu hoja de etiquetas y coloca los tamaños encima.</p>
+    <div class="botones">${esTauri ? '<button id="btnEscanearCalco">Escanear la hoja</button>' : ''}<button id="btnCalco">Abrir una foto…</button>${c ? '<button id="quitarCalco" class="peligro">Quitar</button>' : ''}</div>
+    ${c ? `<div class="fila tres">${campoNum('Izquierda', 'data-cal="x"', c.x)}${campoNum('Arriba', 'data-cal="y"', c.y)}${campoNum('Ancho', 'data-cal="w"', c.w)}</div><p class="nota">Mueve o estira la foto (en mm) hasta que coincida con la hoja.</p>` : ''}
+    <div class="botones" style="margin-top:14px"><button id="deCero" class="mini">Empezar unas etiquetas de cero</button></div>`;
 }
 function alertaHoja() {
   const h = st.etq.hoja, a = $('#alertaHoja'); if (!a) return;
-  const anchoT = h.mIzq + h.cols * h.etqAncho + (h.cols - 1) * h.sepH, altoT = h.mSup + h.filas * h.etqAlto + (h.filas - 1) * h.sepV;
-  const m = [];
-  if (anchoT > h.ancho + 0.05) m.push(`A lo ancho ocupan ${anchoT.toFixed(1)} mm y la hoja mide ${h.ancho}.`);
-  if (altoT > h.alto + 0.05) m.push(`A lo alto ocupan ${altoT.toFixed(1)} mm y la hoja mide ${h.alto}.`);
-  a.innerHTML = m.length ? `<p class="alerta">Las etiquetas se salen de la hoja. ${m.join(' ')}</p>` : '';
+  const fuera = posiciones(h).some((p) => p.x + p.z.w > h.ancho + 0.05 || p.y + p.z.h > h.alto + 0.05);
+  a.innerHTML = fuera ? '<p class="alerta">Hay etiquetas que se salen de la hoja. Revisa las medidas.</p>' : '';
 }
 
 /* ---------- Etiquetas · paso 2: diseño ---------- */
-function pintarDiseno() { const e = st.etq; montarEditor(e.hoja.etqAncho, e.hoja.etqAlto, e, { tam: 11, anchoNuevo: 80 }); }
+function pintarDiseno() { const z = zonaAct(); montarEditor(z.w, z.h, z, { fichas: st.etq, tam: Math.max(6, Math.min(11, Math.round(z.h / 4))), anchoNuevo: 80 }); }
+const EJEMPLOS = [
+  { n: 'Dirección', cols: ['Nombre', 'Dirección', 'Ciudad'], m: [['Ana García', 'Calle Mayor 12, 3.º B', '28013 Madrid'], ['Luis Pérez', 'Avenida del Puerto 5', '11006 Cádiz'], ['Marta Ruiz', 'Plaza Nueva 3', '24001 León']],
+    c: [{ t: '{Nombre}', x: 0.06, y: 0.1, w: 0.88, s: 0.2, b: 1, l: 18 }, { t: '{Dirección}', x: 0.06, y: 0.42, w: 0.88, s: 0.15, l: 24 }, { t: '{Ciudad}', x: 0.06, y: 0.66, w: 0.88, s: 0.15, l: 18 }] },
+  { n: 'Precio', cols: ['Producto', 'Precio'], m: [['Aceite de oliva 1 L', '8,95'], ['Miel de romero', '6,50'], ['Queso curado', '12,40']],
+    c: [{ t: '{Producto}', x: 0.05, y: 0.08, w: 0.9, s: 0.17, a: 'center', l: 20 }, { t: '{Precio} €', x: 0.05, y: 0.38, w: 0.9, s: 0.42, b: 1, a: 'center', l: 7 }] },
+  { n: 'Nombre grande', cols: ['Nombre'], m: [['Lucía'], ['Marta'], ['Daniel']],
+    c: [{ t: '{Nombre}', x: 0.05, y: 0.28, w: 0.9, s: 0.36, b: 1, a: 'center', l: 9 }] },
+  { n: 'Producto y fecha', cols: ['Producto', 'Fecha'], m: [['Tomate frito', '12/11/2026'], ['Lentejas', '03/10/2026'], ['Caldo de pollo', '28/10/2026']],
+    c: [{ t: '{Producto}', x: 0.06, y: 0.14, w: 0.88, s: 0.24, b: 1, l: 16 }, { t: 'Fecha: {Fecha}', x: 0.06, y: 0.58, w: 0.88, s: 0.17, l: 18 }] },
+  { n: 'Archivador', cols: ['Título', 'Año'], m: [['Facturas', '2026'], ['Nóminas', '2026'], ['Seguros', '2025']],
+    c: [{ t: '{Título}', x: 0.05, y: 0.16, w: 0.9, s: 0.28, b: 1, a: 'center', l: 11 }, { t: '{Año}', x: 0.05, y: 0.58, w: 0.9, s: 0.22, a: 'center', l: 5 }] },
+  { n: 'Remitente', cols: [], m: [],
+    c: [{ t: 'Remite:', x: 0.06, y: 0.08, w: 0.88, s: 0.12, l: 8 }, { t: 'Tu nombre\nTu dirección\nCódigo postal y ciudad', x: 0.06, y: 0.26, w: 0.88, s: 0.17, l: 24 }] },
+];
+/* Convierte un ejemplo (en proporciones) en textos a la medida de la etiqueta z. */
+function camposEjemplo(ej, z) {
+  return ej.c.map((f) => {
+    const lineas = f.t.split('\n').length;
+    const porAlto = f.s * z.h / 0.3528 / 1.15, porAncho = (f.w * z.w) / (f.l * 0.195); // que quepa a lo alto y, más o menos, a lo ancho
+    const tam = Math.max(5, Math.min(72, Math.round(Math.min(porAlto, porAncho))));
+    return { id: uid(), tipo: 'texto', texto: f.t, x: r5(f.x * z.w), y: r5(f.y * z.h), w: r5(f.w * z.w), h: altoLinea(tam) * lineas, tam, negrita: !!f.b, alin: f.a || 'left', fuente: 'Arial' };
+  });
+}
+async function aplicarEjemplo(i) {
+  const ej = EJEMPLOS[i], e = st.etq, z = zonaAct();
+  finEdicion(); st.sel = null;
+  if (z.campos.length && !(await confirmar(`¿Cambiar el diseño de esta etiqueta por el ejemplo «${ej.n}»?`, 'Cambiar'))) return;
+  z.campos = camposEjemplo(ej, z);
+  ej.cols.forEach((n) => { if (indiceCol(e, n) < 0) { e.columnas.push(n); e.filas.forEach((f) => f.v.push('')); } });
+  // Las columnas que ya no usa ningún diseño y están vacías se quitan, para no liar la tabla.
+  const usada = (n) => todosCampos(e).some((c) => c.texto && c.texto.toLowerCase().includes(`{${n.toLowerCase()}}`));
+  for (let k = e.columnas.length - 1; k >= 0 && e.columnas.length > 1; k--) {
+    if (!usada(e.columnas[k]) && e.filas.every((f) => !String(f.v[k] ?? '').trim())) { e.columnas.splice(k, 1); e.filas.forEach((f) => f.v.splice(k, 1)); }
+  }
+  const sinDatos = e.filas.every((f) => f.v.every((v) => !String(v ?? '').trim()));
+  if (ej.m.length && sinDatos) e.filas = ej.m.map((r) => ({ sel: true, copias: 1, v: e.columnas.map((c) => { const k = ej.cols.findIndex((x) => x.toLowerCase() === c.toLowerCase()); return k < 0 ? '' : r[k]; }) }));
+  pintar(); guardarSesion();
+  aviso(ej.m.length && sinDatos ? 'Ejemplo puesto, con datos de muestra. Los cambias por los tuyos en el paso Datos.' : 'Ejemplo puesto. Muévelo y cámbialo a tu gusto.', false, 5000);
+}
+function pintarEjemplos() {
+  const z = zonaAct();
+  document.querySelectorAll('#der .ej').forEach((b) => {
+    const ej = EJEMPLOS[+b.dataset.ejemplo], caja = $('.mini', b);
+    caja.innerHTML = '';
+    const { papel } = papelEn(caja, z.w, z.h, Math.min(124 / (z.w * MM), 72 / (z.h * MM)));
+    camposEjemplo(ej, z).forEach((c) => papel.append(elCampo(c, { columnas: ej.cols }, ej.m[0] || [])));
+  });
+}
 function derDiseno() {
-  const e = st.etq;
-  return `<h3>Datos que cambian en cada etiqueta</h3>
+  const e = st.etq, zs = e.hoja.zonas, za = zonaAct();
+  return (zs.length > 1 ? `<h3>¿Qué tamaño estás diseñando?</h3>
+    <div class="chipsHoja">${zs.map((z, k) => `<button data-zona="${z.id}" class="${z === za ? 'activa' : ''}" style="border-left:5px solid ${ZC[k % ZC.length]}">${k + 1} · ${fmt(z.w)} × ${fmt(z.h)} mm</button>`).join('')}</div>
+    <div class="botones"><button id="copiarDiseno" class="mini">Copiar este diseño a los demás tamaños</button></div>` : '') + `
+    <h3>Ejemplos para empezar</h3>
+    <div class="ejemplos">${EJEMPLOS.map((x, i) => `<button class="ej" data-ejemplo="${i}"><div class="mini"></div><span>${x.n}</span></button>`).join('')}</div>
+    <h3>Datos que cambian en cada etiqueta</h3>
     <div class="fichas">${e.columnas.map((n, i) => `<button class="fichaBtn" draggable="true" data-ficha="${esc(n)}" style="background:${colorCol(i)}">${esc(n)}</button>`).join('')}</div>
     <div class="botones"><button id="nuevoDato" class="mini">+ Otro dato</button></div>
     <div class="pista"><b>1</b><span><strong>Arrastra una ficha</strong> a la etiqueta (o haz clic en ella). En cada etiqueta se cambiará por su dato.</span></div>
@@ -560,7 +697,7 @@ const filaVacia = () => ({ sel: true, copias: 1, v: st.etq.columnas.map(() => ''
 function pintarDatos() {
   const e = st.etq;
   if (!usaDatos(e)) {
-    const libres = Math.max(1, porHoja(e) - e.usadas.filter(Boolean).length);
+    const libres = libresHoja(e);
     libre(`<div class="cuantas"><h2>¿Cuántas etiquetas quieres?</h2><input type="number" min="1" id="cantidad" value="${e.cantidad}"><div class="botones" style="justify-content:center">
       <button data-cant="${libres}">Una hoja entera (${libres})</button><button data-cant="${libres * 2}">Dos hojas (${libres * 2})</button></div>
       <p class="nota">Si quieres un nombre o un dato distinto en cada etiqueta, vuelve a Diseño y arrastra una ficha de datos.</p></div>`);
@@ -589,10 +726,10 @@ function derDatos() {
 function pintarPrevia() {
   const p = $('#previa'); if (!p) return;
   const e = st.etq, f = usaDatos(e) ? (e.filas[st.filaPrev] || e.filas[0]) : null;
+  const za = zonaAct(), z = za.activo !== false ? za : (e.hoja.zonas.find((x) => x.activo !== false) || za);
   p.innerHTML = '';
-  const z = Math.min(286 / (e.hoja.etqAncho * MM), 260 / (e.hoja.etqAlto * MM));
-  const { papel } = papelEn(p, e.hoja.etqAncho, e.hoja.etqAlto, z);
-  e.campos.forEach((c) => papel.append(elCampo(c, e, f ? f.v : [])));
+  const { papel } = papelEn(p, z.w, z.h, Math.min(286 / (z.w * MM), 260 / (z.h * MM)));
+  z.campos.forEach((c) => papel.append(elCampo(c, e, f ? f.v : [])));
 }
 function analizarCSV(txt) {
   const primera = txt.split(/\r?\n/, 1)[0];
@@ -619,9 +756,9 @@ function cargarTabla(m) {
   if (!e.filas.length) e.filas = [filaVacia()];
   st.pag = 0; st.filaPrev = 0;
   // Las fichas de columnas que ya no existen se quitan del diseño para que no salgan impresas como {texto}.
-  const perdidas = viejas.filter((v) => indiceCol(e, v) < 0 && e.campos.some((c) => c.texto && c.texto.includes(`{${v}}`)));
-  perdidas.forEach((v) => e.campos.forEach((c) => { if (c.texto) c.texto = c.texto.split(`{${v}}`).join('').trim(); }));
-  e.campos = e.campos.filter((c) => c.tipo !== 'texto' || c.texto !== '');
+  const perdidas = viejas.filter((v) => indiceCol(e, v) < 0 && todosCampos(e).some((c) => c.texto && c.texto.includes(`{${v}}`)));
+  perdidas.forEach((v) => todosCampos(e).forEach((c) => { if (c.texto) c.texto = c.texto.split(`{${v}}`).join('').trim(); }));
+  e.hoja.zonas.forEach((z) => { z.campos = z.campos.filter((c) => c.tipo !== 'texto' || c.texto !== ''); });
   pintar(); guardarSesion();
   aviso(`${m.length - 1} fila(s) traídas.` + (perdidas.length || !usaDatos(e) ? ' Las columnas han cambiado: vuelve a Diseño y coloca las fichas nuevas.' : ''), false, 7000);
   if (!usaDatos(e)) { st.paso = 1; pintar(); }
@@ -637,6 +774,7 @@ function pintarHoja() {
   if (st.pag === 0) papel.querySelectorAll('.etq').forEach((d) => { if (e.usadas[+d.dataset.i]) d.classList.add('usada'); });
   papel.onclick = (ev) => {
     const d = ev.target.closest('.etq'); if (!d) return;
+    if (d.classList.contains('apagada')) { aviso('Ese tamaño está desmarcado a la derecha, así que no se imprime.'); return; }
     if (st.pag !== 0) { aviso('Las etiquetas ya usadas se marcan en la primera hoja.'); return; }
     const i = +d.dataset.i; e.usadas[i] = !e.usadas[i];
     pintarCentro(); pintarDer(); guardarSesion();
@@ -648,6 +786,7 @@ function derImprimirEtq() {
     ${pags.length > 1 ? `<div class="botones" style="align-items:center"><button class="mini" id="pagAnt">◀</button><span>Hoja ${st.pag + 1} de ${pags.length}</span><button class="mini" id="pagSig">▶</button></div>` : ''}
     <div class="pista"><b>☝</b><span><strong>¿Hoja empezada?</strong> Haz clic en las etiquetas que ya no están y se saltarán.${usadas ? ` Ahora hay ${usadas} marcada${usadas === 1 ? '' : 's'}.` : ''}</span></div>
     ${usadas ? '<div class="botones"><button class="mini" id="limpiarUsadas">Quitar todas las marcas</button></div>' : ''}
+    ${e.hoja.zonas.length > 1 ? `<h3>Tamaños que se imprimen</h3>${e.hoja.zonas.map((z, k) => `<label class="marca2"><input type="checkbox" data-activa="${z.id}" ${z.activo !== false ? 'checked' : ''}><span style="border-left:5px solid ${ZC[k % ZC.length]};padding-left:8px">Tamaño ${k + 1} · ${fmt(z.w)} × ${fmt(z.h)} mm (${z.cols * z.filas})</span></label>`).join('')}` : ''}
     <label class="marca2"><input type="checkbox" data-k="borde" ${e.borde ? 'checked' : ''}><span>Dibujar el borde de cada etiqueta (para probar antes en un folio normal)</span></label>
     ${ajusteHTML(e)}
     <button class="principal enorme" id="imprimir">Imprimir</button>
@@ -714,17 +853,32 @@ function pintarDer() {
   if (p === 'inicio') { d.innerHTML = ''; return; }
   d.innerHTML = p === 'etq' ? [derHoja, derDiseno, derDatos, derImprimirEtq][n]() : [derImpHoja, derImpRellenar, derImpRevisar][n]();
   if (p === 'etq' && n === 0) alertaHoja();
+  if (p === 'etq' && n === 1) pintarEjemplos();
   if (p === 'etq' && n === 2) pintarPrevia();
   if (p === 'imp' && n === 0 && esTauri) cargarEscaneres();
 }
 $('#der').addEventListener('input', (ev) => {
   const t = ev.target, d = t.dataset;
-  if (d.h) {
-    const entero = d.h === 'cols' || d.h === 'filas';
-    let v = num(t.value, 0); if (entero) v = Math.max(1, Math.min(60, Math.round(v))); else v = Math.max(0, v);
-    if ((d.h.startsWith('etq') || d.h === 'ancho' || d.h === 'alto') && v < 1) return;
-    st.etq.hoja[d.h] = v; st.etq.usadas = [];
-    $('#vistaHoja').innerHTML = svgHoja(st.etq.hoja); alertaHoja();
+  if (d.ha || d.zk) {
+    const h = st.etq.hoja;
+    let v = num(t.value, 0);
+    if (d.ha) { if (v < 10) return; h[d.ha] = v; }
+    else {
+      const z = h.zonas.find((x) => x.id === d.z); if (!z) return;
+      if (d.zk === 'cols' || d.zk === 'filas') v = Math.max(1, Math.min(60, Math.round(v))); else v = Math.max(0, v);
+      if ((d.zk === 'w' || d.zk === 'h') && v < 2) return;
+      z[d.zk] = v;
+    }
+    st.etq.usadas = [];
+    const vista = $('#vistaHoja'); if (vista) vista.innerHTML = svgHoja(h);
+    alertaHoja();
+  } else if (d.cal) {
+    const c = st.etq.hoja.calco; if (!c) return;
+    const v = num(t.value, 0);
+    if (d.cal === 'w') { if (v < 5) return; c.h = c.h * (v / c.w); c.w = v; } else c[d.cal] = v;
+  } else if (d.activa) {
+    const z = st.etq.hoja.zonas.find((x) => x.id === d.activa); if (z) z.activo = t.checked;
+    st.pag = 0; pintar(); guardarSesion(); return;
   } else if (d.ih) { const v = num(t.value, 0); if (v < 10) return; st.imp.hoja[d.ih] = v; }
   else if (d.f) {
     const f = st.imp.fondo; if (!f) return;
@@ -744,7 +898,7 @@ $('#der').addEventListener('click', async (ev) => {
     if (!nuevo || nuevo === viejo) return;
     if (indiceCol(e, nuevo) >= 0) { aviso('Ya hay una columna con ese nombre.', true); return; }
     e.columnas[i] = nuevo.replace(/[{}]/g, '');
-    e.campos.forEach((c) => { if (c.texto) c.texto = c.texto.split(`{${viejo}}`).join(`{${e.columnas[i]}}`); });
+    todosCampos(e).forEach((c) => { if (c.texto) c.texto = c.texto.split(`{${viejo}}`).join(`{${e.columnas[i]}}`); });
     pintar(); guardarSesion();
   } else if (id === 'nuevoDato') {
     const e = st.etq, n = await pedirTexto('¿Cómo se llama el dato? (por ejemplo: Teléfono)');
@@ -754,6 +908,24 @@ $('#der').addEventListener('click', async (ev) => {
     e.columnas.push(nombre); e.filas.forEach((f) => f.v.push(''));
     pintarDer(); guardarSesion();
   } else if (id === 'addImagen') $('#ficheroImagen').click();
+  else if (d.zona) { finEdicion(); st.sel = null; st.zona = d.zona; pintar(); }
+  else if (d.quitarZona) {
+    const h = st.etq.hoja; if (h.zonas.length < 2) return;
+    h.zonas = h.zonas.filter((z) => z.id !== d.quitarZona); st.zona = null; st.etq.usadas = []; pintar(); guardarSesion();
+  } else if (id === 'addZona') {
+    const h = st.etq.hoja, b = zonaAct(), abajo = Math.max(0, ...posiciones(h).map((p) => p.y + p.z.h));
+    const g = zn(5, abajo + 23 <= h.alto ? r5(abajo + 3) : 5, 1, 1, Math.min(40, h.ancho - 10), 20);
+    const z = { id: uid(), activo: true, ...g, campos: adaptarCampos(b.campos, b, g) };
+    h.zonas.push(z); st.zona = z.id; st.vistaHoja = 'mano'; st.etq.usadas = []; pintar(); guardarSesion();
+    aviso(`Tamaño ${h.zonas.length} añadido. Arrástralo a su sitio y tira de la esquina para darle su medida.`, false, 7000);
+  } else if (id === 'copiarDiseno') {
+    const b = zonaAct(); finEdicion();
+    st.etq.hoja.zonas.forEach((z) => { if (z !== b) z.campos = adaptarCampos(b.campos, b, z); });
+    guardarSesion(); aviso('Diseño copiado a los demás tamaños, adaptado a cada medida.');
+  } else if (d.ejemplo !== undefined) aplicarEjemplo(+d.ejemplo);
+  else if (id === 'btnCalco') $('#ficheroCalco').click();
+  else if (id === 'btnEscanearCalco') escanear('calco');
+  else if (id === 'quitarCalco') { st.etq.hoja.calco = null; pintar(); guardarSesion(); }
   else if (d.hoja !== undefined) { const h = HOJAS[+d.hoja]; st.imp.hoja = { ancho: h.ancho, alto: h.alto }; if (st.imp.fondo && !st.imp.fondo.real) ajustarFondo(); pintar(); guardarSesion(); }
   else if (id === 'btnFondo') $('#ficheroFondo').click();
   else if (id === 'btnEscanear') escanear();
@@ -770,6 +942,17 @@ $('#der').addEventListener('click', async (ev) => {
     if (etq) st.etq = nuevoEtq(); else st.imp = nuevoImp();
     st.sel = null; st.edit = false; st.pag = 0; pintar(); guardarSesion();
   }
+});
+$('#der').addEventListener('focusin', (ev) => { // al tocar las medidas de un tamaño, se resalta en la hoja
+  const g = ev.target.closest && ev.target.closest('[data-grupo]');
+  if (!g || st.zona === g.dataset.grupo || st.etq.hoja.zonas.length < 2) return;
+  st.zona = g.dataset.grupo;
+  document.querySelectorAll('#der .grupo').forEach((x) => x.classList.toggle('sel', x === g));
+  const papel = $('#lienzo .papel.plano'); if (papel) dibujarCeldas(papel);
+});
+$('#titulo').addEventListener('click', (ev) => {
+  const v = ev.target.dataset && ev.target.dataset.vista; if (!v || v === st.vistaHoja) return;
+  st.vistaHoja = v; st.zf = 1; pintar();
 });
 $('#der').addEventListener('dragstart', (ev) => {
   const f = ev.target.dataset && ev.target.dataset.ficha; if (!f) return;
@@ -788,7 +971,7 @@ lz.addEventListener('click', async (ev) => {
   if (d.ir) { st.pantalla = d.ir; st.paso = 0; st.sel = null; st.edit = false; st.zf = 1; pintar(); }
   else if (d.abrir) abrirTrabajo(d.abrir);
   else if (d.borrar) { if (await confirmar(`¿Borrar «${d.borrar}»? No se puede deshacer.`, 'Borrar')) { try { await almacen.borrar(d.borrar); } catch (x) { aviso('No se pudo borrar: ' + x, true); } pintarInicio(); } }
-  else if (d.plantilla !== undefined) { Object.assign(e.hoja, PLANTILLAS[+d.plantilla].h); e.usadas = []; st.pag = 0; pintar(); guardarSesion(); }
+  else if (d.plantilla !== undefined) { e.hoja = hojaDe(PLANTILLAS[+d.plantilla].h, e.hoja); st.zona = null; e.usadas = []; st.pag = 0; pintar(); guardarSesion(); }
   else if (d.cant) { e.cantidad = +d.cant; pintar(); guardarSesion(); }
   else if (t.id === 'btnFondo') $('#ficheroFondo').click();
   else if (t.id === 'btnEscanear') escanear();
@@ -853,7 +1036,7 @@ document.addEventListener('keydown', (ev) => {
   if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
   const c = campoSel(); if (!c) return;
   const paso = ev.shiftKey ? 5 : 0.5;
-  if (ev.key === 'Delete' || ev.key === 'Backspace') { const a = actual(); a.campos = a.campos.filter((x) => x.id !== c.id); st.sel = null; }
+  if (ev.key === 'Delete' || ev.key === 'Backspace') { const a = cont(); a.campos = a.campos.filter((x) => x.id !== c.id); st.sel = null; }
   else if (ev.key === 'ArrowLeft') c.x = r5(c.x - paso);
   else if (ev.key === 'ArrowRight') c.x = r5(c.x + paso);
   else if (ev.key === 'ArrowUp') c.y = r5(c.y - paso);
@@ -898,10 +1081,10 @@ $('#ficheroImagen').addEventListener('change', async (ev) => {
   if (!f) return;
   try {
     const img = await reducirImagen(await leerDataURL(f), 1200, 'image/png');
-    const e = st.etq, alto = Math.max(5, Math.min(e.hoja.etqAlto - 4, 20));
+    const z = zonaAct(), alto = Math.max(5, Math.min(z.h - 4, 20));
     finEdicion();
     const c = { id: uid(), tipo: 'imagen', src: img.src, x: 2, y: 2, w: r5(alto * img.ancho / img.alto), h: r5(alto) };
-    e.campos.push(c); st.sel = c.id; pintar(); guardarSesion();
+    z.campos.push(c); st.sel = c.id; pintar(); guardarSesion();
   } catch (e) { aviso('No se pudo abrir la imagen.', true); }
 });
 /* mmAncho/mmAlto: tamaño real si se conoce (escáner o PDF); si no, se encaja en la hoja. */
@@ -958,18 +1141,38 @@ async function cargarEscaneres(forzar) {
   const ult = localStorage.getItem('esc:escaner');
   if (ult && st.escaneres.some((x) => x.id === ult)) s.value = ult;
 }
-async function escanear() {
+/* Foto o escaneo de la hoja de etiquetas, puesta debajo para colocar los tamaños encima. */
+async function ponerCalco(src, mmAncho, mmAlto) {
+  const img = await reducirImagen(src, 2000), h = st.etq.hoja;
+  let w = mmAncho, al = mmAlto;
+  if (!(w && al)) { w = h.ancho; al = w * img.alto / img.ancho; if (al > h.alto * 1.01) { al = h.alto; w = al * img.ancho / img.alto; } }
+  h.calco = { src: img.src, x: 0, y: 0, w: +w.toFixed(1), h: +al.toFixed(1) };
+  st.vistaHoja = 'mano'; pintar(); guardarSesion();
+}
+$('#ficheroCalco').addEventListener('change', async (ev) => {
+  const f = ev.target.files[0]; ev.target.value = '';
+  if (!f) return;
+  try { await ponerCalco(await leerDataURL(f)); aviso('Foto puesta. Coloca cada tamaño de etiqueta encima de los de la foto.', false, 6000); }
+  catch (e) { aviso('No se pudo abrir la foto.', true); }
+});
+async function escanear(destino) {
   if (!esTauri) return;
-  if (!$('#selEscaner') || !$('#selEscaner').value) await cargarEscaneres(true);
-  const id = $('#selEscaner') && $('#selEscaner').value, ppp = +($('#selPpp') ? $('#selPpp').value : 200);
+  if (!st.escaneres || !st.escaneres.length) {
+    try { const txt = await invoke('listar_escaneres'), j = txt.trim() ? JSON.parse(txt) : []; st.escaneres = Array.isArray(j) ? j : [j]; }
+    catch (e) { st.escaneres = []; }
+    cargarEscaneres();
+  }
+  const sel = $('#selEscaner'), guardado = localStorage.getItem('esc:escaner');
+  const id = (sel && sel.value) || (st.escaneres.find((x) => x.id === guardado) || st.escaneres[0] || {}).id;
+  const ppp = destino === 'calco' ? 150 : +($('#selPpp') ? $('#selPpp').value : 200);
   if (!id) { aviso('No encuentro ningún escáner. Enciéndelo y vuelve a intentarlo.', true, 6000); return; }
   const a = aviso('Escaneando… no levantes la tapa.', false, 180000);
   try {
     localStorage.setItem('esc:escaner', id);
     const src = 'data:image/jpeg;base64,' + (await invoke('escanear', { id, ppp, color: true })).trim();
-    const i = await cargarImg(src);
-    await ponerFondo(src, i.naturalWidth / ppp * 25.4, i.naturalHeight / ppp * 25.4);
-    aviso('Hoja escaneada. Pulsa Siguiente para escribir encima.');
+    const i = await cargarImg(src), mmA = i.naturalWidth / ppp * 25.4, mmH = i.naturalHeight / ppp * 25.4;
+    if (destino === 'calco') { await ponerCalco(src, mmA, mmH); aviso('Hoja escaneada. Coloca cada tamaño de etiqueta encima.', false, 6000); }
+    else { await ponerFondo(src, mmA, mmH); aviso('Hoja escaneada. Pulsa Siguiente para escribir encima.'); }
   } catch (e) { aviso('No se pudo escanear: ' + e, true, 8000); }
   finally { a.remove(); }
 }
@@ -990,7 +1193,7 @@ async function imprimir() {
   let ancho, alto;
   if (st.pantalla === 'etq') {
     const e = st.etq; ancho = e.hoja.ancho; alto = e.hoja.alto;
-    if (!e.campos.length) { aviso('La etiqueta está vacía: vuelve a Diseño y escribe algo.', true); return; }
+    if (!e.hoja.zonas.some((z) => z.activo !== false && z.campos.length)) { aviso('La etiqueta está vacía: vuelve a Diseño y escribe algo.', true); return; }
     const pags = paginar(e).filter((pg) => pg.some(Boolean));
     if (!pags.length) { aviso('No hay ninguna etiqueta marcada para imprimir. Revisa el paso Datos.', true); return; }
     pags.forEach((pg) => { const { p, capa } = paginaImp(ancho, alto, e.ajusteX, e.ajusteY); capa.append(contenidoHoja(e, pg, false)); cont.append(p); });
@@ -1041,9 +1244,9 @@ async function guardar() {
 async function abrirTrabajo(n) {
   try {
     const o = JSON.parse(await almacen.leer(n));
-    if (!o || !o.hoja || !Array.isArray(o.campos)) throw new Error('el archivo no es de Escaneator');
+    if (!o || !o.hoja || !(Array.isArray(o.campos) || Array.isArray(o.hoja.zonas))) throw new Error('el archivo no es de Escaneator');
     if (o.tipo === 'impresos') { st.imp = { ...nuevoImp(), ...o }; st.pantalla = 'imp'; st.paso = 1; }
-    else { st.etq = { ...nuevoEtq(), ...o }; st.pantalla = 'etq'; st.paso = 2; }
+    else { st.etq = migrarEtq(o); st.zona = null; st.pantalla = 'etq'; st.paso = 2; }
     st.sel = null; st.edit = false; st.pag = 0; st.zf = 1;
     pintar(); guardarSesion();
   } catch (e) { aviso('No se pudo abrir: ' + (e.message || e), true, 6000); }
