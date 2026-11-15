@@ -1,6 +1,6 @@
 [package]
 name = "escaneator"
-version = "0.1.0"
+version = "0.2.0"
 description = "Escaneator: etiquetas e impresos rellenados sobre una hoja escaneada"
 edition = "2021"
 

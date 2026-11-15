@@ -3,7 +3,13 @@
 Programa para imprimir **etiquetas** y para **rellenar impresos o folletos ya impresos**: se escanea la hoja,
 se escribe encima en pantalla y al imprimir solo sale lo escrito, colocado en su sitio sobre el original.
 
-Versión 0.1.0 · Hecho con **Tauri 2** (Rust por dentro, interfaz web por fuera).
+Versión 0.2.0 · Hecho con **Tauri 2** (Rust por dentro, interfaz web por fuera).
+
+## Cómo se maneja
+
+Pantalla de inicio con dos opciones y, a partir de ahí, pasos guiados (Hoja → Diseño → Datos → Imprimir).
+Se escribe haciendo clic directamente sobre la etiqueta o la hoja, y se coloca arrastrando.
+Los datos que cambian en cada etiqueta son fichas de color que se arrastran al diseño.
 
 ## Qué hace
 
